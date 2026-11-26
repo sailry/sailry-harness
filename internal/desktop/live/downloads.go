@@ -109,35 +109,53 @@ func (r *Runtime) beginAttachmentDownload(descriptor attachmentDescriptor, path 
 		target, err := prepareDownloadDestination(path)
 		if err == nil {
 			defer target.close()
-			var stream protocol.StreamID
-			var size uint64
-			var revision string
-			stream, size, revision, err = r.prepareAttachmentDownload(ctx, descriptor)
-			if err == nil {
-				last := time.Time{}
-				err = r.controller.Download(ctx, stream, size, revision, target.file, func(copied uint64) {
-					now := time.Now()
-					if copied != 0 && copied != size && !last.IsZero() && now.Sub(last) < 75*time.Millisecond {
-						return
-					}
-					last = now
-					if dialog {
-						r.enqueue(func(*ui.Context) {
-							if state.downloadGeneration == generation {
-								state.download.Status, state.download.Copied, state.download.Size = transfers.Receiving, int64(copied), int64(size)
-							}
-						})
-					}
-				})
+			if descriptor.remoteURL != "" {
+				var data []byte
+				data, _, err = r.readRemoteImage(ctx, descriptor)
 				if err == nil {
 					if dialog {
+						size := int64(len(data))
 						r.enqueue(func(*ui.Context) {
 							if state.downloadGeneration == generation {
-								state.download.Status = transfers.Publishing
+								state.download.Status, state.download.Copied, state.download.Size = transfers.Publishing, size, size
 							}
 						})
 					}
-					err = target.publish(ctx)
+					if _, err = target.file.Write(data); err == nil {
+						err = target.publish(ctx)
+					}
+				}
+			} else {
+				var stream protocol.StreamID
+				var size uint64
+				var revision string
+				stream, size, revision, err = r.prepareAttachmentDownload(ctx, descriptor)
+				if err == nil {
+					last := time.Time{}
+					err = r.controller.Download(ctx, stream, size, revision, target.file, func(copied uint64) {
+						now := time.Now()
+						if copied != 0 && copied != size && !last.IsZero() && now.Sub(last) < 75*time.Millisecond {
+							return
+						}
+						last = now
+						if dialog {
+							r.enqueue(func(*ui.Context) {
+								if state.downloadGeneration == generation {
+									state.download.Status, state.download.Copied, state.download.Size = transfers.Receiving, int64(copied), int64(size)
+								}
+							})
+						}
+					})
+					if err == nil {
+						if dialog {
+							r.enqueue(func(*ui.Context) {
+								if state.downloadGeneration == generation {
+									state.download.Status = transfers.Publishing
+								}
+							})
+						}
+						err = target.publish(ctx)
+					}
 				}
 			}
 		}

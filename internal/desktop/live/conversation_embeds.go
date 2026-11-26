@@ -41,10 +41,10 @@ func imageReference(dest string) (string, bool) {
 	return call + "/" + number, true
 }
 
-// chatEmbed resolves image markup, a tool's image reference, a workspace
-// picture or its file fallback, and a standalone link to a deliverable or a
-// picture. A link to source code remains navigation.
-func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool) (conversation.Embed, bool) {
+// chatEmbed resolves image markup, a tool's image reference, a public HTTPS
+// picture, a workspace picture or its file fallback, and a standalone link to
+// a deliverable or a picture. A link to source code remains navigation.
+func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest, label string, image bool) (conversation.Embed, bool) {
 	if r.attachments == nil {
 		return conversation.Embed{}, false
 	}
@@ -68,6 +68,29 @@ func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool)
 			}
 		}
 		return conversation.Embed{Missing: true}, true
+	}
+	if image {
+		if normalized, ok := remoteImageURL(dest); ok {
+			id := "remote/" + normalized
+			key := attachmentKey(session, id)
+			r.registerRemoteImage(session, id, normalized, remoteImageFilename(normalized, label))
+			if owner, err := protocol.ParseSessionID(session); err == nil {
+				r.trackTranscriptAttachment(owner, key)
+			}
+			if r.attachmentConversationVisible(session) {
+				cache := r.attachmentImages(session)
+				if cache.missing[key] || cache.failed[key] {
+					// A remote picture that cannot load degrades to a clickable link.
+					return conversation.Embed{}, true
+				}
+			}
+			picture := conversation.Image{ID: id, Name: remoteImageDisplayName(normalized, label)}
+			return conversation.Embed{Image: &picture}, true
+		}
+		if isHTTPImageURL(dest) {
+			// Non-HTTPS web image URLs are never fetched automatically, but stay clickable.
+			return conversation.Embed{}, true
+		}
 	}
 	if strings.ContainsAny(dest, "#?") {
 		return conversation.Embed{}, false

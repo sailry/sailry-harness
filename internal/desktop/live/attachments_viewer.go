@@ -46,7 +46,7 @@ func (r *Runtime) attachmentViewerSource(session, id, revision string, thumbnail
 			cache.visible = map[string]bool{}
 		}
 		cache.visible[key] = true
-		thumbnail = ready.bitmap
+		thumbnail = ready.source()
 	} else if w, h := ui.ImageSize(thumbnail); w == 0 || h == 0 {
 		thumbnail = nil
 	}
@@ -62,7 +62,7 @@ func (r *Runtime) attachmentViewerSource(session, id, revision string, thumbnail
 		cache.viewer = nil
 	}
 	descriptor, ok := state.files[key]
-	if !ok || !state.imageConnected {
+	if !ok || descriptor.remoteURL == "" && !state.imageConnected {
 		return thumbnail
 	}
 	if descriptor.attachment != nil && descriptor.attachment.Spec.Revision != revision {
@@ -82,7 +82,12 @@ func (r *Runtime) attachmentViewerSource(session, id, revision string, thumbnail
 			release()
 			return
 		}
-		bitmap, err := decodeAttachmentBitmap(data)
+		var bitmap *ui.Bitmap
+		if descriptor.remoteURL != "" {
+			bitmap, err = decodeRemoteBitmap(data)
+		} else {
+			bitmap, err = decodeAttachmentBitmap(data)
+		}
 		if err != nil || ctx.Err() != nil {
 			release()
 			return

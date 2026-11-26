@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"image"
+	"math"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -16,8 +17,51 @@ const (
 
 type attachmentThumbnail struct {
 	bitmap           *ui.Bitmap
+	svg              *ui.SVG
 	originalRevision string
+	digest           string // remote pictures: BLAKE3 of the fetched bytes
 	pixels           int
+}
+
+func (t *attachmentThumbnail) source() ui.ImageSource {
+	if t == nil {
+		return nil
+	}
+	if t.bitmap != nil {
+		return t.bitmap
+	}
+	if t.svg != nil {
+		return t.svg
+	}
+	return nil
+}
+
+func (t *attachmentThumbnail) size() (int, int) {
+	if t == nil {
+		return 0, 0
+	}
+	if t.bitmap != nil {
+		return t.bitmap.Size()
+	}
+	if t.svg != nil {
+		w, h := t.svg.Size()
+		return max(1, int(math.Ceil(float64(w)))), max(1, int(math.Ceil(float64(h))))
+	}
+	return 0, 0
+}
+
+func (t *attachmentThumbnail) budgetPixels() int {
+	if t == nil {
+		return 0
+	}
+	if t.bitmap != nil {
+		return thumbnailPixels(t.bitmap.Size())
+	}
+	if t.svg != nil {
+		w, h := t.size()
+		return thumbnailPixels(min(w, attachmentThumbnailEdge), min(h, attachmentThumbnailEdge))
+	}
+	return 0
 }
 
 // MyGo can retain the base bitmap and successive half-size levels together.
@@ -70,7 +114,7 @@ func (r *Runtime) loadAttachmentThumbnail(ctx context.Context, edge int, load fu
 			defer release()
 			state.thumbnailPixels -= reserved
 			if accept(thumbnail, err) && thumbnail != nil {
-				thumbnail.pixels = thumbnailPixels(thumbnail.bitmap.Size())
+				thumbnail.pixels = thumbnail.budgetPixels()
 				state.thumbnailPixels += thumbnail.pixels
 			}
 		})
@@ -107,6 +151,8 @@ func (state *attachmentState) releaseThumbnail(thumbnail *attachmentThumbnail) {
 	state.thumbnailPixels -= thumbnail.pixels
 	thumbnail.pixels = 0
 	releaseAttachmentBitmap(thumbnail.bitmap)
+	thumbnail.bitmap = nil
+	thumbnail.svg = nil
 }
 
 func releaseAttachmentBitmap(bitmap *ui.Bitmap) {

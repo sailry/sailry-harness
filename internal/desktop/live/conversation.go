@@ -145,7 +145,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	}
 	cv.Session.ResolveImage = r.resolveConversationImage
 	cv.Session.ResolveViewerImage = r.resolveConversationViewerImage
-	cv.Session.Embed = func(_, dest, _ string, image bool) (conversation.Embed, bool) { return r.chatEmbed(cv, dest, image) }
+	cv.Session.Embed = func(_, dest, label string, image bool) (conversation.Embed, bool) { return r.chatEmbed(cv, dest, label, image) }
 	if hadTurns != (len(cv.Turns) > 0) {
 		// The header above the transcript uses the presence of its rows.
 		c.Invalidate()

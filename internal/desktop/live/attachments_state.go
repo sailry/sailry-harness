@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -41,6 +42,7 @@ type attachmentDescriptor struct {
 	session          protocol.SessionID
 	worktree         protocol.WorktreeID
 	path, name, mime string
+	remoteURL        string
 	revision         *string
 	attachment       *protocol.Attachment
 	image            *protocol.ConversationImage
@@ -57,6 +59,9 @@ type attachmentImageState struct {
 	loading map[string]context.CancelFunc
 	failed  map[string]bool // transient reads wait for a refresh or a reconnected Node
 	missing map[string]bool // pictures that cannot show: gone or past the limits
+	// digests records the bytes a remote thumbnail showed; copy and save of
+	// that picture must read the same bytes.
+	digests map[string]string
 	viewer  *attachmentViewerImage
 }
 
@@ -86,6 +91,7 @@ type attachmentState struct {
 	thumbnailBudgetBlocked bool
 	mu                     sync.Mutex
 	closed                 bool
+	remoteHTTP             *http.Client
 	temporary              map[string]func()
 }
 
@@ -115,9 +121,13 @@ func (r *Runtime) closeAttachments() {
 	clear(state.documents)
 	state.mu.Lock()
 	state.closed = true
+	remoteHTTP := state.remoteHTTP
 	release := state.temporary
 	state.temporary = map[string]func(){}
 	state.mu.Unlock()
+	if remoteHTTP != nil {
+		remoteHTTP.CloseIdleConnections()
+	}
 	for _, close := range release {
 		close()
 	}

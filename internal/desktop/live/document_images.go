@@ -81,14 +81,28 @@ func newDocumentImages(ctx context.Context, owner *Runtime, descriptor attachmen
 	}
 }
 
-func newDocumentImageHTTPClient() *http.Client {
-	client := web.NewPublicHTTPSClient(documentImageFetchTimeout, documentImageFetchRedirects)
+func newPublicImageHTTPClient(timeout time.Duration, maxRedirects int) *http.Client {
+	client := web.NewPublicHTTPSClient(timeout, maxRedirects)
 	checkRedirect := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		request.Header.Del("Referer")
 		return checkRedirect(request, via)
 	}
 	return client
+}
+
+func newDocumentImageHTTPClient() *http.Client {
+	return newPublicImageHTTPClient(documentImageFetchTimeout, documentImageFetchRedirects)
+}
+
+func remoteImageURL(raw string) (string, bool) {
+	address, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(address.Scheme, "https") || address.Hostname() == "" || address.User != nil {
+		return "", false
+	}
+	address.Scheme = "https"
+	address.Fragment, address.RawFragment = "", ""
+	return address.String(), true
 }
 
 // options is called on the UI owner. A reconnect retries failed placeholders
@@ -114,9 +128,8 @@ func (d *documentImages) options() *markdown.Options {
 }
 
 func (d *documentImages) load(reference string) (ui.ImageSource, error) {
-	if address, err := url.Parse(reference); err == nil && address.Scheme == "https" && address.Hostname() != "" && address.User == nil {
-		address.Fragment, address.RawFragment = "", ""
-		image := d.image(address.String(), true)
+	if address, ok := remoteImageURL(reference); ok {
+		image := d.image(address, true)
 		return image.source, image.err
 	}
 	image := d.localImage(reference)
@@ -220,27 +233,42 @@ func (d *documentImages) image(location string, remote bool) *documentImage {
 }
 
 func (d *documentImages) readHTTPS(address string) ([]byte, string, error) {
-	request, err := http.NewRequestWithContext(d.ctx, http.MethodGet, address, nil)
+	return fetchPublicHTTPSImage(d.ctx, d.https, address, documentImageFetchBytes)
+}
+
+func fetchPublicHTTPSImage(ctx context.Context, client *http.Client, address string, maxBytes int64) ([]byte, string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	response, err := d.https.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, "", err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, "", fileActionFault(protocol.ErrorCodeUnavailable, "document image is unavailable")
+		code := protocol.ErrorCodeUnavailable
+		switch response.StatusCode {
+		case http.StatusNotFound, http.StatusGone:
+			code = protocol.ErrorCodeNotFound
+		case http.StatusUnauthorized, http.StatusForbidden:
+			code = protocol.ErrorCodePermissionDenied
+		case http.StatusBadRequest, http.StatusMethodNotAllowed, http.StatusNotAcceptable,
+			http.StatusRequestURITooLong, http.StatusUnsupportedMediaType, http.StatusUnprocessableEntity,
+			http.StatusUnavailableForLegalReasons:
+			code = protocol.ErrorCodeInvalidRequest
+		}
+		return nil, "", fileActionFault(code, "remote image is unavailable")
 	}
-	if response.ContentLength > documentImageFetchBytes {
-		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "document image exceeds its fetch limit")
+	if response.ContentLength > maxBytes {
+		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "image exceeds its fetch limit")
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, documentImageFetchBytes+1))
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
 	if err != nil {
 		return nil, "", err
 	}
-	if len(data) > documentImageFetchBytes {
-		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "document image exceeds its fetch limit")
+	if int64(len(data)) > maxBytes {
+		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "image exceeds its fetch limit")
 	}
 	media, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if !strings.HasPrefix(media, "image/") {

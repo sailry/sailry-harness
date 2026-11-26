@@ -233,6 +233,10 @@ func (s *imageDownloadSink) Write(data []byte) (int, error) {
 }
 func (*imageDownloadSink) Close() error { return nil }
 func (r *Runtime) readAttachmentImage(ctx context.Context, descriptor attachmentDescriptor) ([]byte, string, error) {
+	if descriptor.remoteURL != "" {
+		data, _, err := r.readRemoteImage(ctx, descriptor)
+		return data, "", err
+	}
 	download, err := r.prepareAttachmentTransfer(ctx, descriptor, 0)
 	if err != nil {
 		return nil, "", err
@@ -242,6 +246,16 @@ func (r *Runtime) readAttachmentImage(ctx context.Context, descriptor attachment
 }
 
 func (r *Runtime) readAttachmentThumbnail(ctx context.Context, descriptor attachmentDescriptor) (*attachmentThumbnail, error) {
+	if descriptor.remoteURL != "" {
+		data, media, err := r.fetchRemoteImage(ctx, descriptor.remoteURL)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return decodeRemoteThumbnail(data, media)
+	}
 	download, err := r.prepareAttachmentTransfer(ctx, descriptor, attachmentThumbnailEdge)
 	if err != nil {
 		return nil, err
@@ -284,6 +298,19 @@ func (r *Runtime) attachmentImageAction(x *conversationActions, action kit.Image
 			descriptor.revision = &image.OriginalRevision
 		}
 	}
+	if descriptor.remoteURL != "" && action != kit.ImageOpen {
+		// Copy and save act on the picture shown, not whatever the address
+		// serves now.
+		digest := r.attachmentImages(x.cv.ID).digests[attachmentKey(x.cv.ID, image.ID)]
+		if digest == "" {
+			digest = image.OriginalRevision
+		}
+		if digest == "" {
+			r.downloadOutcome(x.c, fileActionFault(protocol.ErrorCodeBusy, "image is still loading"))
+			return
+		}
+		descriptor.revision = &digest
+	}
 	r.attachmentImageDescriptorAction(x.c, action, descriptor)
 }
 func (r *Runtime) attachmentImageDescriptorAction(c *ui.Context, action kit.ImageAction, descriptor attachmentDescriptor) {
@@ -291,6 +318,12 @@ func (r *Runtime) attachmentImageDescriptorAction(c *ui.Context, action kit.Imag
 	case kit.ImageSave:
 		r.chooseAttachmentDestination(descriptor)
 	case kit.ImageOpen:
+		if descriptor.remoteURL != "" {
+			if ui.SafeToOpen(descriptor.remoteURL) {
+				c.OpenURL(descriptor.remoteURL)
+			}
+			return
+		}
 		r.openExternalAttachment(descriptor, false)
 	case kit.ImageCopy:
 		native := r.attachments.native
@@ -299,13 +332,21 @@ func (r *Runtime) attachmentImageDescriptorAction(c *ui.Context, action kit.Imag
 			return
 		}
 		r.async(func() {
-			data, _, err := r.readAttachmentImage(r.attachments.ctx, descriptor)
+			var data []byte
+			var media string
+			var err error
+			if descriptor.remoteURL != "" {
+				data, media, err = r.readRemoteImage(r.attachments.ctx, descriptor)
+			} else {
+				data, _, err = r.readAttachmentImage(r.attachments.ctx, descriptor)
+				media = descriptor.mime
+			}
 			r.enqueue(func(c *ui.Context) {
 				if err != nil {
 					r.downloadOutcome(c, err)
 					return
 				}
-				native.CopyImage(data, descriptor.mime)
+				native.CopyImage(data, media)
 			})
 		})
 	}
@@ -349,7 +390,7 @@ func (r *Runtime) resolveConversationImage(session string, image conversation.Im
 	}
 	factsOnly := image.ThumbnailFactsOnly()
 	if thumbnail := r.resolveAttachmentImage(cache, key, !factsOnly); thumbnail != nil && !factsOnly {
-		image.Source = thumbnail.bitmap
+		image.Source = thumbnail.source()
 	}
 	if known, ok := cache.facts[key]; ok {
 		image.Width, image.Height, image.OriginalRevision = known.width, known.height, known.revision
@@ -406,11 +447,12 @@ func (r *Runtime) resolveAttachmentImage(cache *attachmentImageState, key string
 		delete(cache.facts, key)
 		delete(cache.failed, key)
 		delete(cache.missing, key)
+		delete(cache.digests, key)
 	}
 	if source := cache.images[key]; source != nil {
 		return source
 	}
-	if !visible || !ok || cache.loading[key] != nil || cache.failed[key] || cache.missing[key] || !state.imageConnected {
+	if !visible || !ok || cache.loading[key] != nil || cache.failed[key] || cache.missing[key] || descriptor.remoteURL == "" && !state.imageConnected {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(cache.ctx)
@@ -428,15 +470,22 @@ func (r *Runtime) resolveAttachmentImage(cache *attachmentImageState, key string
 			return false
 		}
 		if err == nil {
-			width, height := thumbnail.bitmap.Size()
+			width, height := thumbnail.size()
 			cache.facts[key] = attachmentImageFacts{width, height, thumbnail.originalRevision}
 			cache.images[key] = thumbnail
+			if thumbnail.digest != "" {
+				if cache.digests == nil {
+					cache.digests = map[string]string{}
+				}
+				cache.digests[key] = thumbnail.digest
+			}
 			return true
 		}
 		// Other failed reads wait for a refresh or reconnect, not another frame.
-		if code := faultCode(err); code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeInvalidRequest {
+		if code := faultCode(err); code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeInvalidRequest || code == protocol.ErrorCodePermissionDenied {
 			delete(cache.facts, key)
 			cache.missing[key] = true
+			delete(cache.digests, key)
 		} else {
 			cache.failed[key] = true
 		}
@@ -451,7 +500,7 @@ func (r *Runtime) resolveAttachmentImage(cache *attachmentImageState, key string
 }
 
 func (d attachmentDescriptor) sameImageSource(other attachmentDescriptor) bool {
-	return d.session == other.session && d.worktree == other.worktree && d.path == other.path &&
+	return d.session == other.session && d.worktree == other.worktree && d.path == other.path && d.remoteURL == other.remoteURL &&
 		sameAttachmentFact(d.revision, other.revision) && sameAttachmentFact(d.attachment, other.attachment) && sameAttachmentFact(d.image, other.image)
 }
 
@@ -511,7 +560,7 @@ func (r *Runtime) projectDraftAttachmentImages(x *conversationActions) {
 		}
 		attachment.Image, attachment.ImageRevision = nil, ""
 		if thumbnail := r.resolveAttachmentImage(cache, attachmentKey(x.cv.ID, attachment.ID), true); thumbnail != nil {
-			attachment.Image, attachment.ImageRevision = thumbnail.bitmap, thumbnail.originalRevision
+			attachment.Image, attachment.ImageRevision = thumbnail.source(), thumbnail.originalRevision
 		}
 	}
 }
@@ -564,6 +613,7 @@ func (r *Runtime) pruneAttachmentImages() {
 					delete(cache.facts, key)
 					delete(cache.failed, key)
 					delete(cache.missing, key)
+					delete(cache.digests, key)
 				}
 				if _, known := cache.facts[key]; !known && cache.images[key] == nil && cache.loading[key] == nil && !cache.failed[key] && !cache.missing[key] {
 					delete(cache.sources, key)

@@ -54,6 +54,7 @@ type State struct {
 	area          map[string]ui.Rect             // each conversation's list above its dock: what shows of it
 	docks         map[string]*dock               // what floats over each conversation's end (Docked)
 	md            markdown.Options               // the replies' (kit.Markdown fills the rest)
+	embedMD       markdown.Options               // text runs beside embedded pictures
 	mdBase        *markdown.Theme
 	mdSize        float32
 	light         float32            // the welcome wordmark's beam, in window DIPs
