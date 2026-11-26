@@ -385,6 +385,8 @@ func TestVisibleOperationsExposeEverydayCodingTools(t *testing.T) {
 	}
 	tools := []Tool{
 		packageTool("files", "apply_patch", protocol.ToolOperationApplyChanges, false, done),
+		packageTool("files", "read_file", protocol.ToolOperationReadFile, false, done),
+		packageTool("commands", "run_command", protocol.ToolOperationRunCommand, false, done),
 		packageTool("git", "git_status", protocol.ToolOperationInspectGit, false, done),
 		packageTool("git", "git_diff", protocol.ToolOperationReadGitDiff, false, done),
 		packageTool("git", "git_log", protocol.ToolOperationReadGitLog, false, done),
@@ -395,18 +397,18 @@ func TestVisibleOperationsExposeEverydayCodingTools(t *testing.T) {
 	fixture.start()
 	fixture.waitRun(fixture.submit("Check tool visibility"), protocol.ConversationStatusCompleted)
 	first := offeredNames(model.calls[0])
-	for _, visible := range []string{"apply_patch", "git_status", "git_diff"} {
+	for _, visible := range []string{"apply_patch", "read_file", "run_command"} {
 		if !slices.Contains(first, visible) {
 			t.Errorf("expected everyday coding tool %q in initial declarations: %v", visible, first)
 		}
 	}
-	for _, deferred := range []string{"git_log", "git_blame"} {
+	for _, deferred := range []string{"git_status", "git_diff", "git_log", "git_blame"} {
 		if slices.Contains(first, deferred) {
 			t.Errorf("expected low-frequency tool %q to stay deferred: %v", deferred, first)
 		}
 	}
 	context := promptText(model.calls[0])
-	for _, deferred := range []string{"git_log", "git_blame"} {
+	for _, deferred := range []string{"git_status", "git_diff", "git_log", "git_blame"} {
 		if !strings.Contains(context, deferred) {
 			t.Errorf("deferred catalog is missing %q:\n%s", deferred, context)
 		}

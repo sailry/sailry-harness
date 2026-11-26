@@ -10,7 +10,7 @@ import (
 
 func TestChatSchemaCollapsesNullableRoleEnum(t *testing.T) {
 	t.Parallel()
-	raw := json.RawMessage(`{"type":"object","additionalProperties":false,"required":["task"],"properties":{"role":{"anyOf":[{"type":"string","enum":["explore","reviewer"]},{"type":"null"}],"description":"Exact roster role key; omit or pass null to use this turn's model"},"task":{"type":"string"}}}`)
+	raw := json.RawMessage(`{"type":"object","additionalProperties":false,"required":["task"],"properties":{"role":{"anyOf":[{"type":"string","enum":["explore","reviewer"]},{"type":"null"}],"description":"Exact roster role key for a new child. Omit or pass null to use this turn's model only if no team is selected or the selected team's instructions allow delegation without a role. Omit when continuing an idle child."},"task":{"type":"string"}}}`)
 	adapted, err := declarationSchema(fantasy.Call{}, "spawn_agent", raw, true)
 	if err != nil {
 		t.Fatal(err)

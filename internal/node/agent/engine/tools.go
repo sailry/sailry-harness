@@ -382,12 +382,11 @@ func visibleTool(tool Tool) bool {
 }
 
 // visibleOperation names the operations offered on the first request.
-// Common file operations, Git status/diff and commands are directly callable.
+// Common file operations and commands are directly callable.
 func visibleOperation(operation protocol.ToolOperation) bool {
 	switch operation {
 	case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationListDirectory, protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
 		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
-		protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff,
 		protocol.ToolOperationRunCommand, protocol.ToolOperationReadCommand, protocol.ToolOperationStopCommand,
 		protocol.ToolOperationProgress, protocol.ToolOperationListRoles, protocol.ToolOperationListArtifactRevisions:
 		return true
@@ -459,12 +458,12 @@ func (tool *Tool) prepareAtAdmission() bool {
 func nativeTool(tool Tool) bool {
 	return tool.Binding == nil || tool.Binding.Owner.Name == ""
 }
+
 func isPlanRunCommand(tool *Tool) bool {
 	return tool != nil && tool.Approval && tool.ConfigureApproval != nil &&
 		nativeTool(*tool) && tool.Binding != nil && tool.Binding.Operation != nil &&
 		*tool.Binding.Operation == protocol.ToolOperationRunCommand
 }
-
 
 // Historical aliases only migrate absent package identities. A captured plugin
 // that owns the old name must keep its executor and approval binding.
@@ -600,9 +599,9 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": true}}
 			continue
 		}
+		// A main planning turn can ask the user and write its own artifacts.
 		// Only the native command binding with its sandbox approval can
 		// run a shell in Plan mode (also captured for read-only roles).
-		// A main planning turn can ask the user and write its own artifacts.
 		planException := !child && (tool.Delegation || call.Name == "ask_user" ||
 			tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationWriteArtifact)
 		planCommand := planning && isPlanRunCommand(tool)
@@ -733,13 +732,13 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			}
 		}
 		approved, err := r.approval(x, step, call, tool)
+		if err != nil {
 			var denied *protocol.Fault
 			if planning && isPlanRunCommand(tool) && errors.As(err, &denied) && denied.Code == protocol.ErrorCodePermissionDenied {
 				// The sandbox can be disabled between preparation and approval.
 				results[i] = toolFault(err)
 				return nil
 			}
-		if err != nil {
 			return err
 		}
 		executable[i] = approved
