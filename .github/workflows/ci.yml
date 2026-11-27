@@ -177,6 +177,15 @@ jobs:
       - uses: ./.github/actions/turso
       - name: Test
         run: bash .github/scripts/test.sh '${{ matrix.lane }}'
+      - name: Render PDF under macOS Hardened Runtime
+        if: runner.os == 'macOS'
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          go test -c -o "$RUNNER_TEMP/ocr.test" ./internal/localmodels/ocr
+          codesign --force --sign - --options runtime --entitlements cmd/sailry-desktop/macos/app.entitlements.plist "$RUNNER_TEMP/ocr.test"
+          cd internal/localmodels/ocr
+          "$RUNNER_TEMP/ocr.test" -test.run '^TestRenderPDF$' -test.v
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' && (matrix.lane == 'linux-0' || matrix.lane == 'platform') }}
         with:

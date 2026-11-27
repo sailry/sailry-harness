@@ -7,12 +7,16 @@ import (
 	"image"
 	"image/draw"
 	"math"
+	"runtime"
 	"sync"
 
 	"github.com/klippa-app/go-pdfium"
 	"github.com/klippa-app/go-pdfium/references"
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/webassembly"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental"
 )
 
 // ErrPageSize reports a PDF page without a finite, positive size.
@@ -47,8 +51,15 @@ func OpenPDF(ctx context.Context, data []byte) (*PDF, error) {
 
 func openPDF(ctx context.Context, data []byte) (*PDF, error) {
 	if renderer.pool == nil {
+		config := webassembly.Config{MinIdle: 1, MaxIdle: 1, MaxTotal: 1}
+		if runtime.GOOS == "darwin" {
+			// Hardened Runtime rejects wazero's generated executable pages.
+			// The bundled PDFium module requires Wasm exception handling.
+			config.RuntimeConfig = wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(
+				api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling)
+		}
 		// The pool outlives the request that creates it.
-		pool, err := webassembly.Init(webassembly.Config{MinIdle: 1, MaxIdle: 1, MaxTotal: 1})
+		pool, err := webassembly.Init(config)
 		if err != nil {
 			return nil, fmt.Errorf("PDF renderer could not start: %w", err)
 		}

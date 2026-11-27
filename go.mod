@@ -59,6 +59,7 @@ require (
 	github.com/sergi/go-diff v1.4.0
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/studio-b12/gowebdav v0.13.0
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/tursodatabase/turso-go-platform-libs v0.8.3
 	github.com/wlynxg/anet v0.0.5
 	github.com/xuri/excelize/v2 v2.11.1
@@ -224,7 +225,6 @@ require (
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
-	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tidwall/gjson v1.20.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

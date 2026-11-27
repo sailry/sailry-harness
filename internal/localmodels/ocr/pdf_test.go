@@ -8,8 +8,6 @@ import (
 )
 
 // TestRenderPDF rasterizes a two-page PDF of filled rectangles with PDFium.
-// It runs longer than a second: compiling the PDFium WebAssembly module is
-// the cost of the first document in a process and cannot be made smaller.
 func TestRenderPDF(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "shapes.pdf"))
 	if err != nil {

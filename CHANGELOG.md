@@ -3,6 +3,10 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.3.2](https://github.com/sailry/sailry-harness/releases/tag/v0.3.2)
+
+- Fix a crash when a signed macOS application renders PDF pages for preview or OCR. PDF rendering no longer requires executable memory generated at runtime; application signing permissions are unchanged.
+
 ## [0.3.1](https://github.com/sailry/sailry-harness/releases/tag/v0.3.1)
 
 - Fix Windows startup when adopting a stopped legacy profile. Migration retains exclusive ownership while renaming the profile, including when resuming a migration interrupted in 0.3.0.
