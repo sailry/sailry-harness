@@ -243,9 +243,20 @@ func TestProviderLoginRefreshesOpenDraft(t *testing.T) {
 				account.Models = append(slices.Clone(account.Models), model)
 				account.Revision++
 			}
+			commandCounts := func() map[string]int {
+				transport.mu.Lock()
+				defer transport.mu.Unlock()
+				commands := map[string]int{}
+				for _, request := range transport.requests {
+					commands[request.Command.Kind]++
+				}
+				return commands
+			}
 			deliver(update)
 			await("the terminal login update and model directory refresh", func() bool {
-				return attempt.ctx.Err() != nil && (modelFailure || offers("discovered-model"))
+				// Failed discovery leaves the offered models unchanged. Cancellation
+				// alone does not mean that the terminal refresh has been dispatched.
+				return attempt.ctx.Err() != nil && commandCounts()["read_provider_directory"] >= 2 && (modelFailure || offers("discovered-model"))
 			})
 			if !offers(account.Models[0].ID) || offers("discovered-model") == modelFailure || controller.Snapshot().Cursor != snapshot.Cursor {
 				t.Fatal("login did not refresh credential-backed models without a subscription event")
@@ -260,12 +271,7 @@ func TestProviderLoginRefreshesOpenDraft(t *testing.T) {
 			if len(toasts) != toastCount+1 || toasts[toastCount].Type != wantType || toasts[toastCount].Title != i18n.In("en", wantKey) {
 				t.Fatalf("login outcome toasts: %+v", toasts)
 			}
-			transport.mu.Lock()
-			defer transport.mu.Unlock()
-			commands := map[string]int{}
-			for _, request := range transport.requests {
-				commands[request.Command.Kind]++
-			}
+			commands := commandCounts()
 			if r.settingsPage(settings.Providers) != nil || commands["begin_provider_login"] != 1 || commands["list_channel_presets"] != 1 ||
 				commands["read_provider_directory"] != 2 || commands["list_credentials"] != 0 || commands["read_compaction_settings"] != 0 {
 				t.Fatalf("login did not remain independent of the settings page: %v", commands)
