@@ -57,20 +57,25 @@ func AcquireProfile(path string) (*Profile, error) {
 		return nil, err
 	}
 	profile := &Profile{Path: canonical, lock: lock}
-	if _, err := os.Stat(filepath.Join(canonical, "peers.json")); err == nil {
-		_ = profile.Close()
-		return nil, invalidProfile(canonical, "a controller profile cannot be opened as a Node")
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := prepareNodeProfileDirectories(canonical); err != nil {
 		_ = profile.Close()
 		return nil, err
 	}
+	return profile, nil
+}
+
+func prepareNodeProfileDirectories(canonical string) error {
+	if _, err := os.Stat(filepath.Join(canonical, "peers.json")); err == nil {
+		return invalidProfile(canonical, "a controller profile cannot be opened as a Node")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	for _, name := range []string{"storage", "tmp"} {
 		if err := PrivateDirectory(filepath.Join(canonical, name)); err != nil {
-			_ = profile.Close()
-			return nil, err
+			return err
 		}
 	}
-	return profile, nil
+	return nil
 }
 
 func (profile *Profile) Close() error {

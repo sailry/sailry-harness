@@ -37,6 +37,7 @@ type legacyProfileState struct {
 type legacyProfileMigration struct {
 	legacy, declared, target, directory string
 	state                               legacyProfileState
+	journal                             *core.Profile
 }
 
 // MigrateLegacyProfile adopts a stopped Node profile beside target. Existing
@@ -131,6 +132,7 @@ func migrateLegacyProfile(ctx context.Context, legacy, target string, checkpoint
 		return err
 	}
 	defer func() { failure = errors.Join(failure, ownership.Close()) }()
+	migration.journal = ownership
 	state, err = migration.readState()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -138,11 +140,11 @@ func migrateLegacyProfile(ctx context.Context, legacy, target string, checkpoint
 	if err == nil {
 		migration.state = state
 	} else {
-		source, err := core.AcquireProfile(migration.legacy)
+		closeSource, err := migration.acquireSource(migration.legacy)
 		if err != nil {
 			return err
 		}
-		defer func() { failure = errors.Join(failure, source.Close()) }()
+		defer func() { failure = errors.Join(failure, closeSource()) }()
 		if err := migration.prepare(ctx); err != nil {
 			return err
 		}
@@ -151,9 +153,9 @@ func migrateLegacyProfile(ctx context.Context, legacy, target string, checkpoint
 				return err
 			}
 		}
-		return migration.resume(ctx, source, checkpoint)
+		return migration.resume(ctx, true, checkpoint)
 	}
-	return migration.resume(ctx, nil, checkpoint)
+	return migration.resume(ctx, false, checkpoint)
 }
 
 func (migration *legacyProfileMigration) readState() (legacyProfileState, error) {
@@ -307,7 +309,7 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 	return writeLegacyProfileFile(filepath.Join(migration.directory, "state.json"), body)
 }
 
-func (migration *legacyProfileMigration) resume(ctx context.Context, source *core.Profile, checkpoint func(string) error) (failure error) {
+func (migration *legacyProfileMigration) resume(ctx context.Context, sourceLocked bool, checkpoint func(string) error) (failure error) {
 	state := migration.state
 	staged := filepath.Join(migration.directory, "profile")
 	installed := filepath.Join(migration.directory, "installed")
@@ -317,7 +319,7 @@ func (migration *legacyProfileMigration) resume(ctx context.Context, source *cor
 		} else if !exists {
 			return fmt.Errorf("completed legacy migration target %q is missing; retained original databases are at %q", migration.target, migration.backup())
 		}
-		return migration.cleanup()
+		return migration.resumePublished(ctx, true)
 	}
 	if exists, err := legacyProfileExists(migration.target); err != nil {
 		return err
@@ -325,7 +327,7 @@ func (migration *legacyProfileMigration) resume(ctx context.Context, source *cor
 		if !migration.matchesMarker(migration.target, state.Attempt) || !migration.matchesFile(installed, state.Attempt) {
 			return fmt.Errorf("legacy migration target %q already exists; the unpublished profile remains at %q", migration.target, staged)
 		}
-		return migration.finish(ctx)
+		return migration.resumePublished(ctx, false)
 	}
 	exists, err := legacyProfileExists(staged)
 	if err != nil {
@@ -337,12 +339,12 @@ func (migration *legacyProfileMigration) resume(ctx context.Context, source *cor
 		} else if !exists {
 			return fmt.Errorf("legacy migration source %q and staging profile %q are missing; recovery files remain at %q and %q", migration.legacy, staged, migration.directory, migration.backup())
 		}
-		if source == nil {
-			source, err = core.AcquireProfile(migration.legacy)
+		if !sourceLocked {
+			closeSource, err := migration.acquireSource(migration.legacy)
 			if err != nil {
 				return err
 			}
-			defer func() { failure = errors.Join(failure, source.Close()) }()
+			defer func() { failure = errors.Join(failure, closeSource()) }()
 		}
 		if err := migration.checkIdentity(migration.legacy); err != nil {
 			return err
@@ -375,11 +377,11 @@ func (migration *legacyProfileMigration) resume(ctx context.Context, source *cor
 		if !migration.matchesMarker(staged, state.Attempt) {
 			return fmt.Errorf("unrecognized legacy migration staging directory at %q", staged)
 		}
-		source, err = core.AcquireProfile(staged)
+		closeSource, err := migration.acquireSource(staged)
 		if err != nil {
 			return err
 		}
-		defer func() { failure = errors.Join(failure, source.Close()) }()
+		defer func() { failure = errors.Join(failure, closeSource()) }()
 	}
 	if err := migration.checkIdentity(staged); err != nil {
 		return err
@@ -424,6 +426,20 @@ func (migration *legacyProfileMigration) resume(ctx context.Context, source *cor
 		if err := checkpoint("published"); err != nil {
 			return err
 		}
+	}
+	return migration.finish(ctx)
+}
+
+func (migration *legacyProfileMigration) resumePublished(ctx context.Context, completed bool) (failure error) {
+	closeSource, err := migration.acquirePublished(completed)
+	if err != nil {
+		return err
+	}
+	if closeSource != nil {
+		defer func() { failure = errors.Join(failure, closeSource()) }()
+	}
+	if completed {
+		return migration.cleanup()
 	}
 	return migration.finish(ctx)
 }

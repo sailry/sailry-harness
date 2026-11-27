@@ -9,6 +9,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 )
 
+func (*legacyProfileMigration) acquireSource(path string) (func() error, error) {
+	profile, err := core.AcquireProfile(path)
+	if err != nil {
+		return nil, err
+	}
+	return profile.Close, nil
+}
+
+func (*legacyProfileMigration) acquirePublished(bool) (func() error, error) { return nil, nil }
+
 func validateLegacyProfileFile(path string, info os.FileInfo) error {
 	stat := info.Sys().(*syscall.Stat_t)
 	if stat.Nlink != 1 || stat.Uid != uint32(os.Geteuid()) {

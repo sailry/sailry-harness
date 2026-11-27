@@ -9,6 +9,7 @@ class MobileAssembly {
   MobileAssembly({
     required Iterable<MobilePage> pages,
     required this.defaultRoute,
+    this.displayName = 'Sailry',
     Iterable<ProjectResourceFeature> resources = const [],
     this.draftWorkspace,
     this.conversationConfiguration,
@@ -26,6 +27,7 @@ class MobileAssembly {
 
   final List<MobilePage> pages;
   final String defaultRoute;
+  final String displayName;
   final ProjectResources projectResources;
   List<ProjectResourceFeature> get resources => projectResources.features;
   final Widget Function(DraftWorkspaceContext)? draftWorkspace;

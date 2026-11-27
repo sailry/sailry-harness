@@ -457,7 +457,11 @@ libraries to the package, without overriding the Harness identity. Harness does
 not migrate old profiles. A downstream product can declare `LegacyProfile` for
 its default Desktop and foreground Host startup; migration runs before logging
 or preferences create the new profile. Code adopts `~/.sailry` as `~/.sailry-code`
-without changing database engines. When a managed or registered checkout links to
+without changing database engines. Windows migration acquires the original file's
+byte-range lock through a temporary name in the migration journal: an open handle
+beneath the source directory would prevent Windows from renaming it. Ordinary
+profile startup never needs a second lock file or different lock protocol.
+When a managed or registered checkout links to
 an external Git repository, migration verifies the reciprocal worktree registration
 and updates its backlink after publishing the new profile. An interrupted startup
 resumes this step before opening the Node. Explicit profile arguments, including those

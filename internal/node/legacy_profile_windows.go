@@ -8,6 +8,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func (migration *legacyProfileMigration) acquireSource(path string) (func() error, error) {
+	return migration.journal.AcquireWindowsMigrationLock(path, false)
+}
+
+func (migration *legacyProfileMigration) acquirePublished(completed bool) (func() error, error) {
+	return migration.journal.AcquireWindowsMigrationLock(migration.target, completed)
+}
+
 func legacyProfileWindowsName(path string) (*uint16, error) {
 	if !strings.HasPrefix(path, `\\?\`) {
 		if strings.HasPrefix(path, `\\`) {

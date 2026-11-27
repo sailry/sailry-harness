@@ -112,15 +112,22 @@ func openProfileLock(path string) (*os.File, error) {
 		return nil, err
 	}
 	lock := os.NewFile(uintptr(handle), lockPath)
-	if err := windows.LockFileEx(handle, windows.LOCKFILE_FAIL_IMMEDIATELY|windows.LOCKFILE_EXCLUSIVE_LOCK,
-		0, ^uint32(0), ^uint32(0), new(windows.Overlapped)); err != nil {
+	if err := lockWindowsProfile(path, handle); err != nil {
 		_ = lock.Close()
-		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
-			return nil, &ProfileInUseError{Path: path}
-		}
 		return nil, err
 	}
 	return lock, nil
+}
+
+func lockWindowsProfile(path string, handle windows.Handle) error {
+	if err := windows.LockFileEx(handle, windows.LOCKFILE_FAIL_IMMEDIATELY|windows.LOCKFILE_EXCLUSIVE_LOCK,
+		0, ^uint32(0), ^uint32(0), new(windows.Overlapped)); err != nil {
+		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+			return &ProfileInUseError{Path: path}
+		}
+		return err
+	}
+	return nil
 }
 
 func unlockProfile(lock *os.File) error {
@@ -193,6 +200,15 @@ func validateWindowsStorage(path string, directory bool) error {
 }
 
 func openWindowsStorage(path string, directory bool, access uint32) (windows.Handle, windows.ByHandleFileInformation, error) {
+	handle, information, err := openWindowsStorageHandle(path, directory, access)
+	if err == nil && !directory && information.NumberOfLinks != 1 {
+		_ = windows.CloseHandle(handle)
+		return 0, information, invalidProfile(path, "profile storage must not be hard-linked")
+	}
+	return handle, information, err
+}
+
+func openWindowsStorageHandle(path string, directory bool, access uint32) (windows.Handle, windows.ByHandleFileInformation, error) {
 	var information windows.ByHandleFileInformation
 	name, err := windowsName(path)
 	if err != nil {
@@ -214,8 +230,6 @@ func openWindowsStorage(path string, directory bool, access uint32) (windows.Han
 		reason = "profile storage must not be a reparse point"
 	case (information.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0) != directory:
 		reason = "profile storage has an unexpected file type"
-	case !directory && information.NumberOfLinks != 1:
-		reason = "profile storage must not be hard-linked"
 	}
 	if reason != "" {
 		_ = windows.CloseHandle(handle)
@@ -232,8 +246,7 @@ func restrictWindowsStorage(path string, directory bool, expected windows.ByHand
 		return err
 	}
 	defer windows.CloseHandle(handle)
-	if information.VolumeSerialNumber != expected.VolumeSerialNumber ||
-		information.FileIndexHigh != expected.FileIndexHigh || information.FileIndexLow != expected.FileIndexLow {
+	if !sameWindowsStorage(information, expected) {
 		return invalidProfile(path, "profile storage changed during validation")
 	}
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
@@ -266,6 +279,11 @@ func restrictWindowsStorage(path string, directory bool, expected windows.ByHand
 		return invalidProfile(path, reason)
 	}
 	return nil
+}
+
+func sameWindowsStorage(a, b windows.ByHandleFileInformation) bool {
+	return a.VolumeSerialNumber == b.VolumeSerialNumber &&
+		a.FileIndexHigh == b.FileIndexHigh && a.FileIndexLow == b.FileIndexLow
 }
 
 // windowsStorageAccess reports why storage is not private. owned is true when

@@ -3,6 +3,10 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.3.1](https://github.com/sailry/sailry-harness/releases/tag/v0.3.1)
+
+- Fix Windows startup when adopting a stopped legacy profile. Migration retains exclusive ownership while renaming the profile, including when resuming a migration interrupted in 0.3.0.
+
 ## [0.3.0](https://github.com/sailry/sailry-harness/releases/tag/v0.3.0)
 
 - Distribute Harness as a Go module. Harness tags provide source and release notes; downstream products own application packages and update feeds.
