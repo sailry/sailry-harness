@@ -34,6 +34,11 @@ type legacyProfileState struct {
 	Worktrees map[string]string `json:"worktrees,omitempty"`
 }
 
+type legacyProfilePreparationOwner struct {
+	legacyProfileState
+	Replaces string `json:"replaces,omitempty"`
+}
+
 type legacyProfileMigration struct {
 	legacy, declared, target, directory string
 	state                               legacyProfileState
@@ -139,23 +144,14 @@ func migrateLegacyProfile(ctx context.Context, legacy, target string, checkpoint
 	}
 	if err == nil {
 		migration.state = state
-	} else {
-		closeSource, err := migration.acquireSource(migration.legacy)
-		if err != nil {
-			return err
-		}
-		defer func() { failure = errors.Join(failure, closeSource()) }()
-		if err := migration.prepare(ctx); err != nil {
-			return err
-		}
-		if checkpoint != nil {
-			if err := checkpoint("prepared"); err != nil {
-				return err
-			}
-		}
-		return migration.resume(ctx, true, checkpoint)
+		return migration.resume(ctx, false, checkpoint)
 	}
-	return migration.resume(ctx, false, checkpoint)
+	closeSource, err := migration.acquireSource(migration.legacy)
+	if err != nil {
+		return err
+	}
+	defer func() { failure = errors.Join(failure, closeSource()) }()
+	return migration.prepareAndResume(ctx, checkpoint)
 }
 
 func (migration *legacyProfileMigration) readState() (legacyProfileState, error) {
@@ -164,7 +160,7 @@ func (migration *legacyProfileMigration) readState() (legacyProfileState, error)
 		return state, err
 	}
 	if state.Version != 1 || state.Legacy != migration.legacy || state.Target != migration.target ||
-		!strings.HasPrefix(state.Attempt, "attempt-") || filepath.Base(state.Attempt) != state.Attempt ||
+		!strings.HasPrefix(state.Attempt, "attempt-") || !filepath.IsLocal(state.Attempt) || filepath.Base(state.Attempt) != state.Attempt ||
 		len(state.Original) == 0 || len(state.Prepared) == 0 {
 		return state, fmt.Errorf("invalid legacy migration journal at %q; retained files were not changed", migration.directory)
 	}
@@ -178,7 +174,23 @@ func (migration *legacyProfileMigration) readState() (legacyProfileState, error)
 	return state, nil
 }
 
+func (migration *legacyProfileMigration) prepareAndResume(ctx context.Context, checkpoint func(string) error) error {
+	if err := migration.prepare(ctx); err != nil {
+		return err
+	}
+	if checkpoint != nil {
+		if err := checkpoint("prepared"); err != nil {
+			return err
+		}
+	}
+	return migration.resume(ctx, true, checkpoint)
+}
+
 func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure error) {
+	previous := migration.state
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, err := legacyProfileRegular(filepath.Join(migration.legacy, "link.key")); err != nil {
 		return err
 	}
@@ -196,44 +208,29 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 	if err != nil {
 		return err
 	}
+	if previous.Attempt != "" && node.ID() != previous.Node {
+		return fmt.Errorf("legacy migration identity changed at %q", migration.legacy)
+	}
 	if exists, err := legacyProfileExists(migration.backup()); err != nil || exists {
 		return errors.Join(err, fmt.Errorf("original legacy database backup already exists at %q", migration.backup()))
 	}
 	base := filepath.Join(migration.directory, "preparation")
-	if exists, err := legacyProfileExists(base); err != nil {
-		return err
-	} else if exists {
-		if !migration.ownsPreparation("") {
-			return fmt.Errorf("unrecognized legacy preparation directory at %q", base)
-		}
-		if err := os.RemoveAll(base); err != nil {
-			return err
-		}
-	}
-	if err := os.Mkdir(base, 0o700); err != nil {
+	attempt := "attempt-" + uuid.NewString()
+	state := legacyProfileState{Version: 1, Legacy: migration.legacy, Target: migration.target, Attempt: attempt, Node: node.ID()}
+	owner := legacyProfilePreparationOwner{legacyProfileState: state, Replaces: previous.Attempt}
+	if err := migration.beginPreparation(base, owner); err != nil {
 		return err
 	}
 	defer func() {
 		if failure != nil {
-			// Only copied databases live here. Once the durable journal exists,
-			// recovery owns these copies instead of this failed preflight.
-			if state, err := migration.readState(); err != nil || state.Attempt != migration.state.Attempt {
-				failure = errors.Join(failure, os.RemoveAll(base))
+			// Leave the selected snapshot alone, including if publishing the
+			// journal succeeded but its directory sync failed.
+			current, err := migration.readState()
+			if (errors.Is(err, os.ErrNotExist) || (err == nil && current.Attempt != attempt)) && migration.ownsPreparation(attempt) {
+				failure = errors.Join(failure, discardLegacyProfilePreparation(base))
 			}
 		}
 	}()
-	if err := core.PrivateDirectory(base); err != nil {
-		return err
-	}
-	attempt := "attempt-" + uuid.NewString()
-	migration.state = legacyProfileState{Version: 1, Legacy: migration.legacy, Target: migration.target, Attempt: attempt, Node: node.ID()}
-	owner, err := json.Marshal(migration.state)
-	if err != nil {
-		return err
-	}
-	if err := writeLegacyProfileFile(filepath.Join(base, "owner.json"), owner); err != nil {
-		return err
-	}
 	original, prepared := filepath.Join(base, "original"), filepath.Join(base, "prepared")
 	for _, directory := range []string{original, prepared, filepath.Join(original, "storage"), filepath.Join(prepared, "storage")} {
 		if err := core.PrivateDirectory(directory); err != nil {
@@ -291,9 +288,9 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 	if err != nil {
 		return err
 	}
-	migration.state.Original = originalFiles
-	migration.state.Prepared = preparedFiles
-	migration.state.Worktrees = worktrees
+	state.Original = originalFiles
+	state.Prepared = preparedFiles
+	state.Worktrees = worktrees
 	if err := writeLegacyProfileFile(filepath.Join(original, legacyProfileMarker), []byte(attempt)); err != nil {
 		return err
 	}
@@ -302,11 +299,32 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 			return err
 		}
 	}
-	body, err := json.Marshal(migration.state)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	body, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	return writeLegacyProfileFile(filepath.Join(migration.directory, "state.json"), body)
+	publish := renameLegacyProfile
+	if previous.Attempt != "" {
+		if err := migration.checkUnstaged(); err != nil {
+			return err
+		}
+		current, err := migration.readState()
+		if err != nil {
+			return err
+		}
+		if current.Attempt != previous.Attempt || current.Node != previous.Node {
+			return fmt.Errorf("legacy migration journal changed at %q", migration.directory)
+		}
+		publish = replaceLegacyProfileState
+	}
+	if err := publishLegacyProfileFile(filepath.Join(migration.directory, "state.json"), body, publish); err != nil {
+		return err
+	}
+	migration.state = state
+	return nil
 }
 
 func (migration *legacyProfileMigration) resume(ctx context.Context, sourceLocked bool, checkpoint func(string) error) (failure error) {
@@ -349,8 +367,32 @@ func (migration *legacyProfileMigration) resume(ctx context.Context, sourceLocke
 		if err := migration.checkIdentity(migration.legacy); err != nil {
 			return err
 		}
-		if err := checkLegacyProfileHashes(ctx, filepath.Join(migration.legacy, "storage"), state.Original); err != nil {
-			return fmt.Errorf("legacy profile changed after migration preparation; original and prepared copies remain at %q: %w", migration.directory, err)
+		if err := migration.checkUnstaged(); err != nil {
+			return err
+		}
+		storage := filepath.Join(migration.legacy, "storage")
+		actual, err := legacyProfileDatabaseHashes(ctx, storage)
+		if err != nil {
+			return fmt.Errorf("could not check legacy profile databases at %q: %w", storage, err)
+		}
+		difference := compareLegacyProfileHashes(storage, actual, state.Original)
+		// Only a recovered attempt may refresh, at most once in this
+		// invocation. An archive records a refresh admitted before a crash.
+		if !sourceLocked {
+			archive := filepath.Join(migration.directory, "superseded-"+state.Attempt)
+			archived, err := legacyProfileExists(archive)
+			if err != nil {
+				return err
+			}
+			if difference != nil || archived {
+				return migration.refresh(ctx, archive, archived, checkpoint)
+			}
+		}
+		if difference != nil {
+			return fmt.Errorf("legacy profile changed after migration preparation; original and prepared copies remain at %q: %w", migration.directory, difference)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		if err := migration.keepOriginal(ctx); err != nil {
 			return err
@@ -561,13 +603,17 @@ func legacyProfileRegular(path string) (os.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, &core.InvalidProfileError{Path: path, Reason: "legacy migration requires a regular file"}
-	}
-	if err := validateLegacyProfileFile(path, info); err != nil {
+	if err := checkLegacyProfileRegular(path, info); err != nil {
 		return nil, err
 	}
 	return info, nil
+}
+
+func checkLegacyProfileRegular(path string, info os.FileInfo) error {
+	if !info.Mode().IsRegular() {
+		return &core.InvalidProfileError{Path: path, Reason: "legacy migration requires a regular file"}
+	}
+	return validateLegacyProfileFile(path, info)
 }
 
 func legacyProfileDatabaseNames() []string {
@@ -590,14 +636,20 @@ func legacyProfileDatabaseName(name string) bool {
 }
 
 func legacyProfileDatabaseHashes(ctx context.Context, storage string) (map[string]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	files := make(map[string]string)
 	for _, name := range legacyProfileDatabaseNames() {
 		path := filepath.Join(storage, name)
-		info, err := legacyProfileRegular(path)
+		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err := checkLegacyProfileRegular(path, info); err != nil {
 			return nil, err
 		}
 		if name == "node.turso" && info.Size() == 0 {
@@ -624,6 +676,9 @@ func legacyProfileDatabaseHashes(ctx context.Context, storage string) (map[strin
 			}
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -632,6 +687,10 @@ func checkLegacyProfileHashes(ctx context.Context, storage string, expected map[
 	if err != nil {
 		return err
 	}
+	return compareLegacyProfileHashes(storage, actual, expected)
+}
+
+func compareLegacyProfileHashes(storage string, actual, expected map[string]string) error {
 	if len(actual) != len(expected) {
 		return fmt.Errorf("legacy migration database family changed at %q", storage)
 	}
@@ -697,6 +756,10 @@ func copyLegacyProfileFile(ctx context.Context, source, target string) (string, 
 }
 
 func writeLegacyProfileFile(path string, body []byte) error {
+	return publishLegacyProfileFile(path, body, renameLegacyProfile)
+}
+
+func publishLegacyProfileFile(path string, body []byte, publish func(string, string) error) error {
 	temporary := filepath.Join(filepath.Dir(path), ".write-"+uuid.NewString())
 	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -706,7 +769,7 @@ func writeLegacyProfileFile(path string, body []byte) error {
 	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
 		return err
 	}
-	if err := renameLegacyProfile(temporary, path); err != nil {
+	if err := publish(temporary, path); err != nil {
 		return err
 	}
 	return syncLegacyProfileDirectory(filepath.Dir(path))
@@ -729,12 +792,8 @@ func (migration *legacyProfileMigration) backup() string {
 }
 
 func (migration *legacyProfileMigration) ownsPreparation(attempt string) bool {
-	var owner legacyProfileState
-	if err := legacyProfileReadJSON(filepath.Join(migration.directory, "preparation", "owner.json"), &owner); err != nil {
-		return false
-	}
-	return owner.Version == 1 && owner.Legacy == migration.legacy && owner.Target == migration.target &&
-		strings.HasPrefix(owner.Attempt, "attempt-") && (attempt == "" || owner.Attempt == attempt)
+	owner, err := migration.preparationOwner(filepath.Join(migration.directory, "preparation"))
+	return err == nil && (attempt == "" || owner.Attempt == attempt)
 }
 
 func (migration *legacyProfileMigration) keepOriginal(ctx context.Context) error {
@@ -763,7 +822,7 @@ func (migration *legacyProfileMigration) cleanup() error {
 		if !migration.ownsPreparation(migration.state.Attempt) {
 			return fmt.Errorf("unrecognized legacy preparation directory at %q", base)
 		}
-		if err := os.RemoveAll(base); err != nil {
+		if err := discardLegacyProfilePreparation(base); err != nil {
 			return err
 		}
 	}

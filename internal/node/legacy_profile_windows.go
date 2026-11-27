@@ -28,6 +28,15 @@ func legacyProfileWindowsName(path string) (*uint16, error) {
 }
 
 func renameLegacyProfile(source, target string) error {
+	// No REPLACE_EXISTING: even an empty directory or dangling link wins.
+	return moveLegacyProfile(source, target, windows.MOVEFILE_WRITE_THROUGH)
+}
+
+func replaceLegacyProfileState(source, target string) error {
+	return moveLegacyProfile(source, target, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+}
+
+func moveLegacyProfile(source, target string, flags uint32) error {
 	from, err := legacyProfileWindowsName(source)
 	if err != nil {
 		return err
@@ -36,8 +45,7 @@ func renameLegacyProfile(source, target string) error {
 	if err != nil {
 		return err
 	}
-	// No REPLACE_EXISTING: even an empty directory or dangling link wins.
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_WRITE_THROUGH)
+	return windows.MoveFileEx(from, to, flags)
 }
 
 func validateLegacyProfileFile(path string, _ os.FileInfo) error {

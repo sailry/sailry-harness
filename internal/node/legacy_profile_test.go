@@ -94,10 +94,18 @@ func (fixture legacyMigrationFixture) migration() *legacyProfileMigration {
 
 func (fixture legacyMigrationFixture) assertMigrated(t *testing.T) {
 	t.Helper()
+	if body, err := os.ReadFile(filepath.Join(fixture.target, "tmp", "unswept.txt")); err != nil || string(body) != "keep scratch content" {
+		t.Fatalf("migration swept scratch content: %q, %v", body, err)
+	}
+	fixture.assertMigratedProfile(t, nil)
+}
+
+func (fixture legacyMigrationFixture) assertMigratedProfile(t *testing.T, inspect func(*Profile)) {
+	t.Helper()
 	if exists, err := legacyProfileExists(fixture.legacy); err != nil || exists {
 		t.Fatalf("migration retained a shared legacy path or alias: %v", err)
 	}
-	for _, name := range []string{filepath.Join("tmp", "unswept.txt"), filepath.Join("desktop", "preferences.json"), filepath.Join("user-data", "nested", "document.txt")} {
+	for _, name := range []string{filepath.Join("desktop", "preferences.json"), filepath.Join("user-data", "nested", "document.txt")} {
 		if _, err := os.ReadFile(filepath.Join(fixture.target, name)); err != nil {
 			t.Fatalf("migration lost or swept %s: %v", name, err)
 		}
@@ -166,6 +174,9 @@ func (fixture legacyMigrationFixture) assertMigrated(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if inspect != nil {
+		inspect(opened)
+	}
 	// A completed migration is a no-op even while the new Node holds its lock.
 	if err := MigrateLegacyProfile(t.Context(), fixture.legacy, fixture.target); err != nil {
 		t.Fatalf("repeat migration with target in use: %v", err)
@@ -181,16 +192,7 @@ func TestMigrateLegacyProfileRecovery(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			t.Parallel()
 			fixture := newLegacyMigrationFixture(t)
-			interrupted := errors.New("migration interrupted")
-			err := migrateLegacyProfile(t.Context(), fixture.legacy, fixture.target, func(step string) error {
-				if step == phase {
-					return interrupted
-				}
-				return nil
-			})
-			if !errors.Is(err, interrupted) {
-				t.Fatalf("interruption at %s: %v", phase, err)
-			}
+			fixture.interrupt(t, phase)
 			if phase != "published" {
 				if exists, err := legacyProfileExists(fixture.target); err != nil || exists {
 					t.Fatalf("an incomplete target was published: %v", err)

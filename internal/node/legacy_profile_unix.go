@@ -19,6 +19,8 @@ func (*legacyProfileMigration) acquireSource(path string) (func() error, error) 
 
 func (*legacyProfileMigration) acquirePublished(bool) (func() error, error) { return nil, nil }
 
+func replaceLegacyProfileState(source, target string) error { return os.Rename(source, target) }
+
 func validateLegacyProfileFile(path string, info os.FileInfo) error {
 	stat := info.Sys().(*syscall.Stat_t)
 	if stat.Nlink != 1 || stat.Uid != uint32(os.Geteuid()) {

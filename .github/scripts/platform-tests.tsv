@@ -10,7 +10,7 @@ internal/node/host	all
 internal/node/logging	all
 internal/node/process	all
 internal/node/terminal	all
-internal/node	^Test(CopilotSignIn|ProfileLeftovers)$
+internal/node	^Test(CopilotSignIn|MigrateLegacyProfileRefreshesPreparedSource|ProfileLeftovers)$
 internal/node/agent/engine	^TestLargeInstructionsReachModel$
 internal/desktop/kit	^Test(NativeConfirmation|AlertDialogUsesNativeConfirmation|DialogKeepsPressWhenEarlierOverlayAppears)$
 internal/desktop/live	^Test(Authorization(FixedPortCallback|OccupiedCallbackPort|PasteOnlyCallback)|AttachmentLocalIO|Update(PendingNativeInput|FlushPendingWindows|FlushWithoutLockFrame))$

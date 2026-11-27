@@ -2,6 +2,15 @@ import 'package:pub_semver/pub_semver.dart';
 
 const releaseRepository = 'sailry/sailry-harness';
 
+final _androidBuildLabel = RegExp(r'Android build ([1-9][0-9]*)');
+
+int? _buildFromLabel(Object? label) {
+  if (label is! String) return null;
+  final match = _androidBuildLabel.matchAsPrefix(label);
+  if (match == null || match.end != label.length) return null;
+  return int.tryParse(match[1]!);
+}
+
 class Release {
   const Release({
     required this.version,
@@ -60,9 +69,15 @@ Release? latestRelease(
     if (!tag.startsWith(tagPrefix)) continue;
     Version version;
     int? buildNumber;
+    final bool useAssetBuild;
     try {
       final parsed = Version.parse(tag.substring(tagPrefix.length));
       version = precedence(parsed.toString());
+      // Unified tags leave the Android install code on the APK itself.
+      useAssetBuild =
+          currentBuildNumber != null &&
+          tagPrefix == 'v' &&
+          parsed.build.isEmpty;
       if (parsed.build.length == 1) {
         buildNumber = int.tryParse(parsed.build.single.toString());
       }
@@ -70,6 +85,7 @@ Release? latestRelease(
       continue;
     }
     if (currentBuildNumber != null &&
+        !useAssetBuild &&
         (buildNumber == null || buildNumber <= 0)) {
       continue;
     }
@@ -91,6 +107,10 @@ Release? latestRelease(
       }
       final name = asset['name'];
       if (!names.contains(name) || asset['state'] != 'uploaded') continue;
+      final assetBuild = useAssetBuild
+          ? _buildFromLabel(asset['label'])
+          : buildNumber;
+      if (useAssetBuild && assetBuild == null) continue;
       final expected = [
         ...repository.split('/'),
         'releases',
@@ -119,7 +139,7 @@ Release? latestRelease(
       final candidate = Release(
         version: version,
         download: download,
-        buildNumber: buildNumber,
+        buildNumber: assetBuild,
       );
       if (latest == null || candidate._laterThan(latest)) {
         latest = candidate;

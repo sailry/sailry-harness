@@ -32,15 +32,18 @@ AppUpdates updates(
   List<Map<String, dynamic>> releases, {
   String current = '0.2.13',
   String buildNumber = '31',
+  String tagPrefix = prefix,
   MockClientHandler? request,
 }) => AppUpdates(
   repository: repository,
-  tagPrefix: prefix,
+  tagPrefix: tagPrefix,
   requireBuildNumber: true,
   target: 'android-arm64',
   readInfo: () async => fixture.info(current, buildNumber: buildNumber),
   client: MockClient(
-    request ?? (_) async => http.Response(jsonEncode(releases), 200),
+    request ??
+        (_) async =>
+            http.Response.bytes(utf8.encode(jsonEncode(releases)), 200),
   ),
 );
 
@@ -52,7 +55,9 @@ void main() {
         final release = mobileRelease('0.2.14+32');
         final url =
             'https://github.com/$repository/releases/download/$tag/Sailry-android-arm64.apk';
-        apk(release)['browser_download_url'] = url;
+        apk(release)
+          ..['browser_download_url'] = url
+          ..['label'] = 'Android build 99';
         final service = updates([release]);
         addTearDown(service.dispose);
         expect(await service.check(), UpdateResult.available);
@@ -121,9 +126,11 @@ void main() {
   test(
     'desktop tags and mobile tags without install codes are not mobile updates',
     () async {
+      final unnumbered = mobileRelease('0.2.14');
+      apk(unnumbered)['label'] = 'Android build 32';
       final service = updates([
         fixture.release('9.0.0', repository: repository),
-        mobileRelease('0.2.14'),
+        unnumbered,
         mobileRelease('0.2.14+unknown'),
       ]);
       addTearDown(service.dispose);
@@ -192,6 +199,109 @@ void main() {
     rows = [];
     expect(await service.check(), UpdateResult.unpublished);
     expect(service.available, isNull);
+  });
+
+  group('unified Code tags', () {
+    Map<String, dynamic> labeledRelease(String version, Object? label) {
+      final release = fixture.release(version, repository: repository);
+      release['assets'] = [
+        <String, dynamic>{...apk(release), 'label': label},
+      ];
+      return release;
+    }
+
+    AppUpdates unifiedUpdates(Map<String, dynamic> release) =>
+        updates([release], current: '0.3.2', buildNumber: '33', tagPrefix: 'v');
+
+    test('reads the build label from the published APK', () async {
+      final service = unifiedUpdates(
+        labeledRelease('0.3.3', 'Android build 34'),
+      );
+      addTearDown(service.dispose);
+      expect(await service.check(), UpdateResult.available);
+      expect(service.available?.version, precedence('0.3.3'));
+      expect(service.available?.buildNumber, 34);
+      expect(
+        service.available?.download.path,
+        '/$repository/releases/download/v0.3.3/Sailry-android-arm64.apk',
+      );
+    });
+
+    test('skips labels from a different asset or an unfinished APK', () async {
+      final release = fixture.release('0.3.3', repository: repository);
+      final target = apk(release);
+      final other = {
+        ...target,
+        'name': 'Sailry-ios.ipa',
+        'label': 'Android build 34',
+        'browser_download_url':
+            'https://github.com/$repository/releases/download/v0.3.3/Sailry-ios.ipa',
+      };
+      for (final assets in [
+        [other],
+        [other, target],
+        [
+          {...target, 'state': 'starter', 'label': 'Android build 34'},
+        ],
+      ]) {
+        final service = unifiedUpdates({...release, 'assets': assets});
+        addTearDown(service.dispose);
+        expect(await service.check(), UpdateResult.unpublished);
+        expect(service.available, isNull);
+      }
+    });
+
+    test('rejects a labeled APK whose URL points to a different tag', () async {
+      final release = labeledRelease('0.3.3', 'Android build 34');
+      apk(release)['browser_download_url'] =
+          'https://github.com/$repository/releases/download/v0.3.4/Sailry-android-arm64.apk';
+      final service = unifiedUpdates(release);
+      addTearDown(service.dispose);
+      await expectLater(service.check(), throwsFormatException);
+      expect(service.available, isNull);
+    });
+
+    test('does not infer a build from malformed metadata', () async {
+      for (final release in [
+        for (final label in [
+          null,
+          34,
+          'Build 34',
+          'Android build 0',
+          'Android build 034',
+          'Android build +34',
+          'Android build \u0663\u0664',
+          'Android build 34\n',
+        ])
+          labeledRelease('0.3.3', label),
+        labeledRelease('0.3.3+unknown', 'Android build 34'),
+      ]) {
+        final service = unifiedUpdates(release);
+        addTearDown(service.dispose);
+        expect(
+          await service.check(),
+          UpdateResult.unpublished,
+          reason: '${release['tag_name']}: ${apk(release)['label']}',
+        );
+        expect(service.available, isNull);
+      }
+    });
+
+    test('a build label does not bypass version or build ordering', () async {
+      for (final (version, build, result) in [
+        ('0.3.3', 33, UpdateResult.current),
+        ('0.3.3', 32, UpdateResult.current),
+        ('0.3.1', 34, UpdateResult.current),
+        ('0.3.3-beta.1', 34, UpdateResult.unpublished),
+      ]) {
+        final service = unifiedUpdates(
+          labeledRelease(version, 'Android build $build'),
+        );
+        addTearDown(service.dispose);
+        expect(await service.check(), result, reason: '$version+$build');
+        expect(service.available, isNull);
+      }
+    });
   });
 
   group('Code release pagination', () {

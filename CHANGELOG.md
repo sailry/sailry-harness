@@ -3,6 +3,10 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.3.3](https://github.com/sailry/sailry-harness/releases/tag/v0.3.3)
+
+- Resume an interrupted legacy profile migration from the latest source databases when the old app wrote new data before installation. Users do not need to delete database logs, backups or migration files.
+
 ## [0.3.2](https://github.com/sailry/sailry-harness/releases/tag/v0.3.2)
 
 - Fix a crash when a signed macOS application renders PDF pages for preview or OCR. PDF rendering no longer requires executable memory generated at runtime; application signing permissions are unchanged.
